@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import AdminPanel from './components/AdminPanel.vue'
 import { db } from './firebase'
 
 
@@ -51,17 +52,41 @@ function priceFor(product, selected=selection(product)) {
   return product.variants?.type === 'multi' ? product.basePrice + (product.variants.priceModifier[selected.thickness] || 0) : product.price
 }
 function navigate(hash) { window.location.hash = hash }
+
 function routeFromHash() {
+  const path = window.location.pathname
   const hash = decodeURIComponent(window.location.hash.slice(1))
-  if (!hash || hash==='/') currentPage.value='home'
-  else if (hash==='shop') currentPage.value='shop'
-  else if (hash==='cart') currentPage.value='cart'
-  else if (hash==='checkout') currentPage.value='checkout'
-  else if (hash==='contact') { currentPage.value='home'; document.getElementById('contact')?.scrollIntoView({behavior:'smooth'}) }
-  else if (hash.startsWith('category/')) { selectedCategory.value=hash.slice(9); currentPage.value='category' }
-  else if (hash==='product') currentPage.value = selectedProduct.value ? 'product-detail' : 'shop'
-  menuOpen.value=false
+
+  // Support direct URLs such as /admin
+  if (path === '/admin' || path === '/admin/') {
+    currentPage.value = 'admin'
+  } else if (!hash || hash === '/') {
+    currentPage.value = 'home'
+  } else if (hash === 'admin') {
+    currentPage.value = 'admin'
+  } else if (hash === 'shop') {
+    currentPage.value = 'shop'
+  } else if (hash === 'cart') {
+    currentPage.value = 'cart'
+  } else if (hash === 'checkout') {
+    currentPage.value = 'checkout'
+  } else if (hash === 'contact') {
+    currentPage.value = 'home'
+    document.getElementById('contact')?.scrollIntoView({
+      behavior: 'smooth'
+    })
+  } else if (hash.startsWith('category/')) {
+    selectedCategory.value = hash.slice(9)
+    currentPage.value = 'category'
+  } else if (hash === 'product') {
+    currentPage.value = selectedProduct.value
+      ? 'product-detail'
+      : 'shop'
+  }
+
+  menuOpen.value = false
 }
+
 function addToCart(product, chosen=null, qty=null) {
   const sel = chosen || selection(product)
   const item = {...product, selectedVariants:{size:sel.size || '', thickness:sel.thickness || ''}, quantity:qty ?? sel.quantity ?? 1, finalPrice:priceFor(product,sel)}
@@ -184,7 +209,8 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
 
 <template>
   <div class="app-shell">
-    <nav class="navbar">
+    <AdminPanel v-if="currentPage === 'admin'" />
+    <nav v-if="currentPage !== 'admin'" class="navbar">
       <div class="nav-content">
         <a href="#" class="logo">📦 WRAP N ROLL</a>
         <button class="menu-toggle" aria-label="Toggle menu" @click="menuOpen=!menuOpen"><span></span><span></span><span></span></button>
@@ -236,7 +262,7 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
 
     <section v-else-if="currentPage==='confirmation' && orderData" class="order-confirmation"><div class="success-icon">✅</div><h2 class="confirmation-title">Order Confirmed!</h2><p>Thank you for shopping with Wrap N Roll</p><div class="confirmation-details"><div class="detail-row"><span class="detail-label">Order Number:</span><span class="detail-value">#{{orderData.number}}</span></div><div class="detail-row"><span class="detail-label">Customer Name:</span><span class="detail-value">{{orderData.fullName}}</span></div><div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">{{orderData.phoneNumber}}</span></div><div class="detail-row"><span class="detail-label">Delivery Area:</span><span class="detail-value">{{orderData.area}}, Karachi</span></div><div class="detail-row"><span class="detail-label">Payment Method:</span><span class="detail-value">{{orderData.paymentMethod==='COD'?'Cash on Delivery':'Card Payment (not integrated)'}}</span></div><div class="detail-row"><span class="detail-label">Total Amount:</span><span class="detail-value">PKR {{orderData.total?.toLocaleString()}}</span></div></div><div class="confirmation-details"><p>📦 Your order will be delivered to:</p><p>{{orderData.address}}<br>{{orderData.area}}{{orderData.landmark?', '+orderData.landmark:''}}<br>Karachi</p></div><p style="margin:1rem">Have questions? Chat with us on WhatsApp</p><a :href="whatsapp" target="_blank" class="btn btn-secondary">💬 Contact Us on WhatsApp</a><a href="#" class="btn btn-primary" style="margin-top:1rem">Continue Shopping</a></section>
 
-    <footer id="contact" class="footer"><div class="footer-content"><div class="footer-section"><h3>📦 WRAP N ROLL</h3><p style="font-size:.9rem;color:rgba(255,255,255,.8)">Protect. Pack. Deliver.</p></div><div class="footer-section"><h3>Quick Links</h3><ul><li><a href="#shop">Shop</a></li><li><a href="#category/Bubble%20Wrap">Bubble Wrap</a></li><li><a href="#category/Thermocol%20Sheets">Thermocol</a></li><li><a href="#category/XPS%20Sheets">XPS Sheets</a></li></ul></div><div class="footer-section"><h3>Contact</h3><ul><li><a :href="whatsapp" target="_blank">💬 WhatsApp</a></li><li><p>📍 Karachi, Pakistan</p></li><li></li></ul></div></div><div class="footer-bottom"><p>
+    <footer v-if="currentPage !== 'admin'" id="contact" class="footer"><div class="footer-content"><div class="footer-section"><h3>📦 WRAP N ROLL</h3><p style="font-size:.9rem;color:rgba(255,255,255,.8)">Protect. Pack. Deliver.</p></div><div class="footer-section"><h3>Quick Links</h3><ul><li><a href="#shop">Shop</a></li><li><a href="#category/Bubble%20Wrap">Bubble Wrap</a></li><li><a href="#category/Thermocol%20Sheets">Thermocol</a></li><li><a href="#category/XPS%20Sheets">XPS Sheets</a></li></ul></div><div class="footer-section"><h3>Contact</h3><ul><li><a :href="whatsapp" target="_blank">💬 WhatsApp</a></li><li><p>📍 Karachi, Pakistan</p></li><li></li></ul></div></div><div class="footer-bottom"><p>
           © {{ new Date().getFullYear() }}
           <span class="font-semibold text-zinc-300">
             NeonLEDs
