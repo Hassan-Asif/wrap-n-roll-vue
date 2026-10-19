@@ -1,5 +1,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { db } from './firebase'
+
 
 const CONFIG = { whatsappNumber: '+923361271119', storeName: 'Wrap N Roll', deliveryCity: 'Karachi', deliveryCharge: 300 }
 const PRODUCTS = [
@@ -32,6 +35,8 @@ const searchQuery = ref('')
 const productSelections = reactive({})
 const checkout = reactive({fullName:'',phoneNumber:'',whatsappNumber:'',address:'',area:'',landmark:'',city:'Karachi',paymentMethod:'COD'})
 const errors = ref({})
+const isSubmitting = ref(false)
+const orderError = ref('')
 let toastTimer
 
 const subtotal = computed(() => cartItems.value.reduce((sum,item)=>sum + item.finalPrice*item.quantity,0))
@@ -76,17 +81,99 @@ function updateQuantity(id, variants, qty) {
 function openCategory(category) { selectedCategory.value=category; navigate(`#category/${encodeURIComponent(category)}`) }
 function openProduct(product) { selectedProduct.value=product; currentPage.value='product-detail'; navigate('#product') }
 function buyNow(product) { addToCart(product); navigate('#checkout') }
-function placeOrder() {
-  const e={}
-  for (const field of ['fullName','phoneNumber','whatsappNumber','address','area']) if(!checkout[field].trim()) e[field]=true
-  if(checkout.city!=='Karachi') e.city=true
-  errors.value=e
-  if(Object.keys(e).length) return
-  orderData.value={...checkout,total:total.value,items:cartItems.value.map(i=>({...i})),number:Math.random().toString(36).slice(2,8).toUpperCase()}
-  cartItems.value=[]
-  currentPage.value='confirmation'
-  window.location.hash='confirmation'
+
+async function placeOrder() {
+  if (isSubmitting.value) return
+
+  const e = {}
+
+  for (const field of [
+    'fullName',
+    'phoneNumber',
+    'whatsappNumber',
+    'address',
+    'area',
+  ]) {
+    if (!checkout[field].trim()) {
+      e[field] = true
+    }
+  }
+
+  if (checkout.city !== 'Karachi') {
+    e.city = true
+  }
+
+  errors.value = e
+  orderError.value = ''
+
+  if (Object.keys(e).length > 0) return
+
+  if (!cartItems.value.length) {
+    orderError.value = 'Your cart is empty. Please add a product first.'
+    return
+  }
+
+  isSubmitting.value = true
+
+  const orderNumber = Math.random()
+    .toString(36)
+    .slice(2, 8)
+    .toUpperCase()
+
+  const items = cartItems.value.map((item) => ({
+    productId: item.id,
+    name: item.name,
+    category: item.category,
+    unitPrice: item.finalPrice,
+    quantity: item.quantity,
+    selectedVariants: item.selectedVariants || {},
+  }))
+
+  const order = {
+    orderNumber,
+    customer: {
+      fullName: checkout.fullName.trim(),
+      phoneNumber: checkout.phoneNumber.trim(),
+      whatsappNumber: checkout.whatsappNumber.trim(),
+      address: checkout.address.trim(),
+      area: checkout.area.trim(),
+      landmark: checkout.landmark.trim(),
+      city: checkout.city,
+    },
+    items,
+    subtotal: subtotal.value,
+    deliveryCharge: CONFIG.deliveryCharge,
+    total: total.value,
+    paymentMethod: checkout.paymentMethod,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  }
+
+  try {
+    const docRef = await addDoc(collection(db, 'orders'), order)
+
+    // Show confirmation only after Firestore saves the order.
+    orderData.value = {
+      ...checkout,
+      total: order.total,
+      items: cartItems.value.map((item) => ({ ...item })),
+      number: orderNumber,
+      firestoreId: docRef.id,
+    }
+
+    cartItems.value = []
+    currentPage.value = 'confirmation'
+    window.location.hash = 'confirmation'
+  } catch (error) {
+    console.error('Failed to save order:', error)
+
+    orderError.value =
+      'We could not save your order. Please check your connection and try again.'
+  } finally {
+    isSubmitting.value = false
+  }
 }
+
 watch(cartItems, v=>{ try{localStorage.setItem('cart',JSON.stringify(v))}catch{} },{deep:true})
 onMounted(()=>{
   try { cartItems.value=JSON.parse(localStorage.getItem('cart')) || [] } catch { cartItems.value=[] }
@@ -106,7 +193,7 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
           <a href="#category/Bubble%20Wrap" @click="menuOpen=false">Bubble Wrap</a><a href="#category/Thermocol%20Sheets" @click="menuOpen=false">Thermocol</a>
           <a href="#category/XPS%20Sheets" @click="menuOpen=false">XPS Sheets</a><a href="#contact" @click="menuOpen=false">Contact</a>
         </div>
-        <div class="nav-icons"><button class="nav-icon-btn" style="position:relative" @click="navigate('#cart')">🛒<span v-if="cartItems.length" class="cart-count">{{cartItems.length}}</span></button><a :href="whatsapp" target="_blank" rel="noopener noreferrer" class="nav-icon-btn">💬</a></div>
+        <div class="nav-icons"><button class="nav-icon-btn" style="position:relative" @click="navigate('#cart')">🛒<span v-if="cartItems.length" class="cart-count">{{cartItems.length}}</span></button></div>
       </div>
     </nav>
 
@@ -132,11 +219,43 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
 
     <section v-else-if="currentPage==='cart'" class="cart-container"><template v-if="cartItems.length"><h1 class="section-title">Shopping Cart</h1><div class="cart-items"><div v-for="item in cartItems" :key="itemKey(item)" class="cart-item"><div class="cart-item-image">{{item.image}}</div><div class="cart-item-details"><h3>{{item.name}}</h3><p v-if="item.selectedVariants?.size">Size: {{item.selectedVariants.size}}</p><p v-if="item.selectedVariants?.thickness">Thickness: {{item.selectedVariants.thickness}}</p><div class="quantity-selector"><button class="qty-btn" @click="updateQuantity(item.id,item.selectedVariants,item.quantity-1)">−</button><input class="qty-input" type="number" min="1" :value="item.quantity" @change="updateQuantity(item.id,item.selectedVariants,$event.target.value)"><button class="qty-btn" @click="updateQuantity(item.id,item.selectedVariants,item.quantity+1)">+</button></div></div><div class="cart-item-actions"><div class="cart-item-price">PKR {{(item.finalPrice*item.quantity).toLocaleString()}}</div><button class="btn-remove" @click="removeFromCart(item.id,item.selectedVariants)">Remove</button></div></div></div><div class="cart-summary"><div class="summary-row"><span>Subtotal:</span><span>PKR {{subtotal.toLocaleString()}}</span></div><div class="summary-row"><span>Delivery Charge (Karachi):</span><span>PKR {{CONFIG.deliveryCharge.toLocaleString()}}</span></div><div class="summary-row total"><span>Total:</span><span>PKR {{total.toLocaleString()}}</span></div><button class="checkout-btn" @click="navigate('#checkout')">Proceed to Checkout</button></div></template><div v-else class="empty-state"><div class="empty-state-icon">🛒</div><h2>Your cart is empty</h2><p>Start shopping to add items to your cart</p><a href="#shop" class="btn btn-primary">Continue Shopping</a></div></section>
 
-    <section v-else-if="currentPage==='checkout'" class="checkout-container"><h1 class="section-title">Checkout</h1><div v-if="!cartItems.length" class="empty-state">Please add items to your cart first</div><template v-else><div class="delivery-warning">✓ We currently deliver only within <strong>Karachi</strong>. Delivery charge: <strong>PKR {{CONFIG.deliveryCharge}}</strong></div><form @submit.prevent="placeOrder"><div class="form-section"><h2 class="form-heading">Delivery Information</h2><div class="form-row"><div class="form-group"><label>Full Name *</label><input v-model="checkout.fullName" :class="{invalid:errors.fullName}"><small v-if="errors.fullName">This field is required</small></div><div class="form-group"><label>Phone Number *</label><input v-model="checkout.phoneNumber" type="tel" :class="{invalid:errors.phoneNumber}"><small v-if="errors.phoneNumber">This field is required</small></div></div><div class="form-group"><label>WhatsApp Number *</label><input v-model="checkout.whatsappNumber" type="tel" :class="{invalid:errors.whatsappNumber}"><small v-if="errors.whatsappNumber">This field is required</small></div><div class="form-group"><label>Complete Address *</label><textarea v-model="checkout.address" :class="{invalid:errors.address}"></textarea><small v-if="errors.address">This field is required</small></div><div class="form-row"><div class="form-group"><label>Area / Locality *</label><input v-model="checkout.area" :class="{invalid:errors.area}"><small v-if="errors.area">This field is required</small></div><div class="form-group"><label>Landmark (Optional)</label><input v-model="checkout.landmark" placeholder="e.g., Near XYZ Store"></div></div><div class="form-group"><label>City *</label><select v-model="checkout.city"><option>Karachi</option><option value="Other">Other Cities (Not Available)</option></select><small v-if="errors.city">Delivery is currently available only in Karachi.</small></div></div><div class="form-section"><h2 class="form-heading">Payment Method</h2><div class="payment-methods"><button type="button" :class="['payment-option',{active:checkout.paymentMethod==='COD'}]" @click="checkout.paymentMethod='COD'"><div class="payment-option-icon">💵</div>Cash on Delivery</button><button type="button" :class="['payment-option',{active:checkout.paymentMethod==='Card'}]" @click="checkout.paymentMethod='Card'"><div class="payment-option-icon">💳</div>Card Payment</button></div><p class="product-desc">Card payments are a placeholder until a payment gateway is connected. Do not enter real card details here.</p></div><div class="form-section"><h2 class="form-heading">Order Summary</h2><div v-for="item in cartItems" :key="itemKey(item)" class="summary-row"><span>{{item.name}} × {{item.quantity}}</span><span>PKR {{(item.finalPrice*item.quantity).toLocaleString()}}</span></div><div class="summary-row"><span>Subtotal:</span><span>PKR {{subtotal.toLocaleString()}}</span></div><div class="summary-row"><span>Delivery Charge:</span><span>PKR {{CONFIG.deliveryCharge.toLocaleString()}}</span></div><div class="summary-row total"><span>Total:</span><span>PKR {{total.toLocaleString()}}</span></div></div><button class="checkout-btn" type="submit">Place Order</button></form></template></section>
+    <section v-else-if="currentPage==='checkout'" class="checkout-container"><h1 class="section-title">Checkout</h1><div v-if="!cartItems.length" class="empty-state">Please add items to your cart first</div><template v-else><div class="delivery-warning">✓ We currently deliver only within <strong>Karachi</strong>. Delivery charge: <strong>PKR {{CONFIG.deliveryCharge}}</strong></div><form @submit.prevent="placeOrder"><div class="form-section"><h2 class="form-heading">Delivery Information</h2><div class="form-row"><div class="form-group"><label>Full Name *</label><input v-model="checkout.fullName" :class="{invalid:errors.fullName}"><small v-if="errors.fullName">This field is required</small></div><div class="form-group"><label>Phone Number *</label><input v-model="checkout.phoneNumber" type="tel" :class="{invalid:errors.phoneNumber}"><small v-if="errors.phoneNumber">This field is required</small></div></div><div class="form-group"><label>WhatsApp Number *</label><input v-model="checkout.whatsappNumber" type="tel" :class="{invalid:errors.whatsappNumber}"><small v-if="errors.whatsappNumber">This field is required</small></div><div class="form-group"><label>Complete Address *</label><textarea v-model="checkout.address" :class="{invalid:errors.address}"></textarea><small v-if="errors.address">This field is required</small></div><div class="form-row"><div class="form-group"><label>Area / Locality *</label><input v-model="checkout.area" :class="{invalid:errors.area}"><small v-if="errors.area">This field is required</small></div><div class="form-group"><label>Landmark (Optional)</label><input v-model="checkout.landmark" placeholder="e.g., Near XYZ Store"></div></div><div class="form-group"><label>City *</label><select v-model="checkout.city"><option>Karachi</option><option value="Other">Other Cities (Not Available)</option></select><small v-if="errors.city">Delivery is currently available only in Karachi.</small></div></div><div class="form-section"><h2 class="form-heading">Payment Method</h2><div class="payment-methods"><button type="button" :class="['payment-option',{active:checkout.paymentMethod==='COD'}]" @click="checkout.paymentMethod='COD'"><div class="payment-option-icon">💵</div>Advance Payment through JazzCash/EasyPaisa</button></div><p class="product-desc">Card payments are a placeholder until a payment gateway is connected. Do not enter real card details here.</p></div><div class="form-section"><h2 class="form-heading">Order Summary</h2><div v-for="item in cartItems" :key="itemKey(item)" class="summary-row"><span>{{item.name}} × {{item.quantity}}</span><span>PKR {{(item.finalPrice*item.quantity).toLocaleString()}}</span></div><div class="summary-row"><span>Subtotal:</span><span>PKR {{subtotal.toLocaleString()}}</span></div><div class="summary-row"><span>Delivery Charge:</span><span>PKR {{CONFIG.deliveryCharge.toLocaleString()}}</span></div><div class="summary-row total"><span>Total:</span><span>PKR {{total.toLocaleString()}}</span></div></div>
+<p v-if="orderError" role="alert" style="color: #dc2626; margin: 12px 0;">
+  {{ orderError }}
+</p>
+
+<button
+  class="checkout-btn"
+  type="button"
+  :disabled="isSubmitting"
+  @click="placeOrder"
+>
+  {{ isSubmitting ? 'Saving Order...' : 'Place Order' }}
+</button>
+</form></template></section>
 
     <section v-else-if="currentPage==='confirmation' && orderData" class="order-confirmation"><div class="success-icon">✅</div><h2 class="confirmation-title">Order Confirmed!</h2><p>Thank you for shopping with Wrap N Roll</p><div class="confirmation-details"><div class="detail-row"><span class="detail-label">Order Number:</span><span class="detail-value">#{{orderData.number}}</span></div><div class="detail-row"><span class="detail-label">Customer Name:</span><span class="detail-value">{{orderData.fullName}}</span></div><div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">{{orderData.phoneNumber}}</span></div><div class="detail-row"><span class="detail-label">Delivery Area:</span><span class="detail-value">{{orderData.area}}, Karachi</span></div><div class="detail-row"><span class="detail-label">Payment Method:</span><span class="detail-value">{{orderData.paymentMethod==='COD'?'Cash on Delivery':'Card Payment (not integrated)'}}</span></div><div class="detail-row"><span class="detail-label">Total Amount:</span><span class="detail-value">PKR {{orderData.total?.toLocaleString()}}</span></div></div><div class="confirmation-details"><p>📦 Your order will be delivered to:</p><p>{{orderData.address}}<br>{{orderData.area}}{{orderData.landmark?', '+orderData.landmark:''}}<br>Karachi</p></div><p style="margin:1rem">Have questions? Chat with us on WhatsApp</p><a :href="whatsapp" target="_blank" class="btn btn-secondary">💬 Contact Us on WhatsApp</a><a href="#" class="btn btn-primary" style="margin-top:1rem">Continue Shopping</a></section>
 
-    <footer id="contact" class="footer"><div class="footer-content"><div class="footer-section"><h3>📦 WRAP N ROLL</h3><p style="font-size:.9rem;color:rgba(255,255,255,.8)">Protect. Pack. Deliver.</p></div><div class="footer-section"><h3>Quick Links</h3><ul><li><a href="#shop">Shop</a></li><li><a href="#category/Bubble%20Wrap">Bubble Wrap</a></li><li><a href="#category/Thermocol%20Sheets">Thermocol</a></li><li><a href="#category/XPS%20Sheets">XPS Sheets</a></li></ul></div><div class="footer-section"><h3>Information</h3><ul><li><a href="#">Terms &amp; Conditions</a></li><li><a href="#">Privacy Policy</a></li><li><a href="#">Delivery Info</a></li></ul></div><div class="footer-section"><h3>Contact</h3><ul><li><a :href="whatsapp" target="_blank">💬 WhatsApp</a></li><li><p>📍 Karachi, Pakistan</p></li><li><p>🚚 Delivery across Karachi</p></li></ul></div></div><div class="footer-bottom"><p>© 2026 Wrap N Roll. All rights reserved. Premium Packaging Materials in Karachi.</p></div></footer>
+    <footer id="contact" class="footer"><div class="footer-content"><div class="footer-section"><h3>📦 WRAP N ROLL</h3><p style="font-size:.9rem;color:rgba(255,255,255,.8)">Protect. Pack. Deliver.</p></div><div class="footer-section"><h3>Quick Links</h3><ul><li><a href="#shop">Shop</a></li><li><a href="#category/Bubble%20Wrap">Bubble Wrap</a></li><li><a href="#category/Thermocol%20Sheets">Thermocol</a></li><li><a href="#category/XPS%20Sheets">XPS Sheets</a></li></ul></div><div class="footer-section"><h3>Contact</h3><ul><li><a :href="whatsapp" target="_blank">💬 WhatsApp</a></li><li><p>📍 Karachi, Pakistan</p></li><li></li></ul></div></div><div class="footer-bottom"><p>
+          © {{ new Date().getFullYear() }}
+          <span class="font-semibold text-zinc-300">
+            NeonLEDs
+          </span>.
+          All Rights Reserved.
+
+          Designed & Developed by
+          <a
+            href="https://aqil-lab.vercel.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-semibold text-zinc-300 transition hover:text-white"
+          >
+            AqilLabs
+          </a>
+        </p>
+
+
+        </div></footer>
     <a :href="whatsapp" target="_blank" rel="noopener noreferrer" class="whatsapp-float">💬</a>
     <div v-if="toast" class="toast">{{toast}}</div>
   </div>
