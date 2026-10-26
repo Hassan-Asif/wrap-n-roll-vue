@@ -256,7 +256,7 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
     <div>
       <strong>JazzCash / Easypaisa</strong>
       <p class="product-desc" style="margin: 4px 0 0">
-        Advance payment — details confirmed via WhatsApp
+        Advance payment — 0336-1271119
       </p>
     </div>
   </button>
