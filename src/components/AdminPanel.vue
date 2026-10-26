@@ -970,8 +970,23 @@ onUnmounted(() => {
         </template>
 
         <footer class="page-footer">
-          <span>© {{ new Date().getFullYear() }} <strong>Wrap N Roll</strong></span>
-          <span>Built for smoother business operations <span class="footer-heart">✦</span></span>
+          <p>
+           ©. {{ new Date().getFullYear() }}
+          <span class="font-semibold text-zinc-300">
+           
+          </span>
+          All Rights Reserved.
+
+          Powered By
+          <a
+            href="https://aqil-lab.vercel.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-semibold text-zinc-300 no-underline transition hover:text-white hover:underline"
+          >
+            AqilLabs
+          </a>
+        </p>
         </footer>
       </div>
     </main>
