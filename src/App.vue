@@ -217,7 +217,7 @@ onUnmounted(()=>{window.removeEventListener('hashchange',routeFromHash);clearTim
         <div :class="['nav-links',{active:menuOpen}]">
           <a href="#" @click="menuOpen=false">Home</a><a href="#shop" @click="menuOpen=false">Shop</a>
           <a href="#category/Bubble%20Wrap" @click="menuOpen=false">Bubble Wrap</a><a href="#category/Thermocol%20Sheets" @click="menuOpen=false">Thermocol</a>
-          <a href="#category/XPS%20Sheets" @click="menuOpen=false">XPS Sheets</a><a href="#contact" @click="menuOpen=false">Contact</a>
+          <a href="#category/XPS%20Sheets" @click="menuOpen=false">XPS Sheets</a>
         </div>
         <div class="nav-icons"><button class="nav-icon-btn" style="position:relative" @click="navigate('#cart')">🛒<span v-if="cartItems.length" class="cart-count">{{cartItems.length}}</span></button></div>
       </div>
